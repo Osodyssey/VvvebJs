@@ -1,11 +1,11 @@
 // odyssey/assets/chat-popup.js
-// Improved and cleaned JS: keeps original behavior and structure but fixes UI bugs,
-// accessibility, state handling, sanitization, and small UX improvements.
+// Enhanced: supports user-provided API URL, hides open button when popup is open,
+// and does a capability check for inserting into VvvebJs editor (iframe or global API).
 
 (function(){
   /* ---------- Templates ---------- */
   const tpl = `
-  <div id="ai-chat-popup" role="dialog" aria-label="Odyssey AI chat" aria-hidden="true" style="display:none;">
+  <div id="ai-chat-popup" role="dialog" aria-label="Odyssey AI chat" aria-hidden="true" style="display: flex;height: 900px !important;">
     <div id="ai-chat-header">
       <div class="title" id="od-title">Odyssey AI</div>
       <div id="ai-chat-controls" role="toolbar" aria-label="chat controls">
@@ -36,15 +36,29 @@
         <option value="gpt-4o-mini">gpt-4o-mini</option>
         <option value="gpt-4o">gpt-4o</option>
       </select>
+
       <label for="od-temp">Temperature (0-1)</label>
       <input id="od-temp" type="number" min="0" max="1" step="0.1" value="0.3" />
+
       <label for="od-agent-mode">Agent Mode</label>
       <select id="od-agent-mode">
         <option value="off">Off (chat)</option>
         <option value="landing">Landing Page Generator</option>
       </select>
+
       <label for="od-max-tokens">Estimated tokens limit</label>
       <input id="od-max-tokens" type="number" min="256" max="8000" step="1" value="1500" />
+
+      <hr/>
+
+      <label for="od-api-url">Custom API URL (optional)</label>
+      <input id="od-api-url" type="url" placeholder="https://example.com/my-proxy" />
+
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+        <input id="od-use-api" type="checkbox" />
+        <span>Use custom API URL for requests</span>
+      </label>
+
       <div style="margin-top:8px;">
         <button id="od-save-settings">Save</button>
       </div>
@@ -80,6 +94,8 @@
   const agentModeSelect = document.getElementById('od-agent-mode');
   const maxTokensInput = document.getElementById('od-max-tokens');
   const clearHistoryBtn = document.getElementById('od-clear-history');
+  const apiUrlInput = document.getElementById('od-api-url');
+  const useApiCheckbox = document.getElementById('od-use-api');
 
   /* ---------- State ---------- */
   const DEFAULTS = {
@@ -110,33 +126,27 @@
   }
   applyTheme(state.theme || 'dark');
 
-  /* ---------- Sanitizer (improved but conservative) ---------- */
+  /* ---------- Sanitizer ---------- */
   function sanitizeHtml(input){
     if (!input) return '';
-    // Basic approach: parse using DOMParser, strip scripts, iframes, and on* attrs.
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(input, 'text/html');
-      // remove script and iframe elements
       doc.querySelectorAll('script, iframe, object, embed').forEach(el => el.remove());
-      // remove event handler attributes and javascript: href/src
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT, null, false);
       while(walker.nextNode()){
         const el = walker.currentNode;
-        // clone attribute names to avoid live mutation issues
         const attrs = Array.from(el.attributes || []);
         attrs.forEach(a=>{
           const name = a.name.toLowerCase();
           const val = a.value || '';
           if (name.startsWith('on')) el.removeAttribute(a.name);
           if ((name === 'href' || name === 'src') && val.trim().toLowerCase().startsWith('javascript:')) el.removeAttribute(a.name);
-          // disallow style attribute (to avoid injection)
           if (name === 'style') el.removeAttribute(a.name);
         });
       }
       return doc.body.innerHTML;
     } catch (e){
-      // fallback: escape
       return escapeHtml(input);
     }
   }
@@ -165,7 +175,6 @@
 
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    // allow minimal HTML for bot if raw === true: sanitize then set innerHTML
     if (role === 'bot' && raw === true){
       bubble.innerHTML = sanitizeHtml(text);
     } else {
@@ -185,24 +194,83 @@
   function appendMsg(role, text, raw=false){
     const el = createMsgElement(role, text, raw);
     messagesEl.appendChild(el);
-    // scroll smoothly
     messagesEl.scrollTop = messagesEl.scrollHeight;
     if (!raw){
       state.history = state.history || [];
       state.history.push({role, text, t: Date.now()});
-      // keep last 500 messages to avoid localStorage bloat
       if (state.history.length > 500) state.history = state.history.slice(-500);
       saveState();
     }
   }
 
-  /* ---------- API call (proxy) ---------- */
+  /* ---------- Editor detection & capability check ---------- */
+  function detectEditorTarget(){
+    // Try multiple heuristics to detect VvvebJs editor or an editable iframe.
+    // Returns {type, node, reason}
+    // type: 'vvveb-global' | 'iframe-same-origin' | 'iframe-cross-origin' | null
+    // node: reference to the iframe or editor object (may be null if cross-origin)
+    // reason: human-readable string
+    // 1) global objects
+    if (window.Vvveb || window.Vvvebjs || window.VvvebEditor) {
+      return {type: 'vvveb-global', node: window.Vvveb || window.Vvvebjs || window.VvvebEditor, reason: 'Found global Vvveb editor object.'};
+    }
+    // 2) known iframe patterns (editor.html or editor.php)
+    const iframes = Array.from(document.querySelectorAll('iframe'));
+    for (const iframe of iframes){
+      const src = iframe.getAttribute('src') || '';
+      if (/editor(\.html|\.php)|vvveb|vvvebjs/i.test(src) || iframe.id.toLowerCase().includes('editor')){
+        // test same-origin by trying to access contentDocument
+        try {
+          const doc = iframe.contentDocument || iframe.contentWindow.document;
+          // if no exception, same-origin
+          return {type: 'iframe-same-origin', node: iframe, reason: 'Found editor iframe (same-origin).'};
+        } catch (e){
+          return {type: 'iframe-cross-origin', node: iframe, reason: 'Found editor iframe but it is cross-origin (cannot inject).'};
+        }
+      }
+    }
+    // 3) last resort: look for elements that seem like editor containers
+    const editorDom = document.querySelector('[data-vvveb], #vvveb, .vvveb, #editor');
+    if (editorDom) return {type: 'vvveb-dom', node: editorDom, reason: 'Found element that looks like an editor DOM container.'};
+    return {type: null, node: null, reason: 'No obvious Vvveb editor detected on page.'};
+  }
+
+  function checkEditorCapability(){
+    const res = detectEditorTarget();
+    if (!res.type) {
+      appendMsg('bot', 'Editor detection: ناموفق — ویرایشگر VvvebJs قابل تشخیص نیست. (' + res.reason + ')');
+      return res;
+    }
+    if (res.type === 'iframe-cross-origin') {
+      appendMsg('bot', 'Editor detection: یافت شد اما iframe از دامنه متفاوت است؛ امکان درج مستقیم وجود ندارد. (' + res.reason + ')');
+      return res;
+    }
+    if (res.type === 'iframe-same-origin') {
+      appendMsg('bot', 'Editor detection: iframe ویرایشگر پیدا شد و same-origin است — درج مستقیم ممکن است کار کند.');
+      return res;
+    }
+    if (res.type === 'vvveb-global') {
+      appendMsg('bot', 'Editor detection: شیء global ویرایشگر پیدا شد — از API داخلی ویرایشگر استفاده می‌کنم.');
+      return res;
+    }
+    if (res.type === 'vvveb-dom') {
+      appendMsg('bot', 'Editor detection: المان ویرایشگر پیدا شد — تلاش برای درج ممکن است نیاز به انطباق داشته باشد.');
+      return res;
+    }
+    return res;
+  }
+
+  /* ---------- API call (proxy or custom) ---------- */
   async function callProxy(messages, model='gpt-4', temperature=0.3, max_tokens=1500){
     const payload = {model, messages, temperature, max_tokens};
+    // If user enabled custom API URL in settings, use it.
+    const useCustom = state.settings?.use_custom_api || false;
+    const apiUrl = state.settings?.api_url || '';
+    const endpoint = (useCustom && apiUrl) ? apiUrl : '/odyssey/api_proxy.php';
     try {
-      const resp = await fetch('/odyssey/api_proxy.php', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload)
       });
       if (!resp.ok){
@@ -224,7 +292,6 @@
     if (!txt || sending) return;
     textarea.value = '';
     appendMsg('user', txt);
-    // show a temporary "typing" bot message
     const typingMsg = createMsgElement('bot', 'در حال دریافت پاسخ...');
     messagesEl.appendChild(typingMsg);
     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -242,7 +309,6 @@
         {role:'user', content: txt}
       ];
       const data = await callProxy(messages, model, temp, maxT);
-      // remove typing
       typingMsg.remove();
       const answer = data?.choices?.[0]?.message?.content || (typeof data === 'string' ? data : JSON.stringify(data).slice(0,500));
       appendMsg('bot', answer);
@@ -275,6 +341,8 @@
     tempInput.value = state.settings?.temperature ?? tempInput.value;
     agentModeSelect.value = state.settings?.agentMode || agentModeSelect.value;
     maxTokensInput.value = state.settings?.max_tokens ?? maxTokensInput.value;
+    apiUrlInput.value = state.settings?.api_url || '';
+    useApiCheckbox.checked = !!state.settings?.use_custom_api;
   });
 
   saveSettingsBtn.addEventListener('click', ()=>{
@@ -283,6 +351,8 @@
     state.settings.temperature = parseFloat(tempInput.value);
     state.settings.agentMode = agentModeSelect.value;
     state.settings.max_tokens = parseInt(maxTokensInput.value);
+    state.settings.api_url = apiUrlInput.value || '';
+    state.settings.use_custom_api = !!useApiCheckbox.checked;
     saveState();
     settingsPanel.style.display = 'none';
     settingsPanel.setAttribute('aria-hidden','true');
@@ -296,22 +366,30 @@
     appendMsg('bot', 'تم به ' + mode + ' تغییر یافت.');
   });
 
-  /* ---------- Open / Close ---------- */
-  openBtn.addEventListener('click', ()=>{
-    const isHidden = popup.style.display === 'none' || popup.getAttribute('aria-hidden') === 'true';
-    popup.style.display = isHidden ? 'flex' : 'none';
-    popup.setAttribute('aria-hidden', isHidden ? 'false' : 'true');
-    openBtn.setAttribute('aria-expanded', String(isHidden));
-    if (isHidden) {
-      // focus textarea for quick typing
-      setTimeout(()=> textarea.focus(), 120);
-    }
-  });
-  closeBtn.addEventListener('click', ()=>{
+  /* ---------- Open / Close (hide openBtn when popup open) ---------- */
+  function showPopup(){
+    popup.style.display = 'flex';
+    popup.setAttribute('aria-hidden','false');
+    openBtn.setAttribute('aria-expanded','true');
+    // hide the floating open button to avoid duplicate controls
+    openBtn.style.display = 'none';
+    // focus textarea for quick typing
+    setTimeout(()=> textarea.focus(), 120);
+    // run capability check once opened
+    checkEditorCapability();
+  }
+  function hidePopup(){
     popup.style.display = 'none';
     popup.setAttribute('aria-hidden','true');
     openBtn.setAttribute('aria-expanded','false');
+    openBtn.style.display = 'flex';
+  }
+
+  openBtn.addEventListener('click', ()=>{
+    const isHidden = popup.style.display === 'none' || popup.getAttribute('aria-hidden') === 'true';
+    if (isHidden) showPopup(); else hidePopup();
   });
+  closeBtn.addEventListener('click', hidePopup);
 
   /* ---------- History ---------- */
   function renderHistory(){
@@ -389,7 +467,7 @@
     }
   }
 
-  /* brief prompt UI (simple prompt collection) */
+  /* brief prompt UI */
   async function promptBrief(){
     const product = prompt('اسم محصول/سرویس؟','محصول من');
     if (!product) return null;
@@ -415,7 +493,7 @@
     }
   });
 
-  /* ---------- Preview & Insert ---------- */
+  /* ---------- Preview & Insert (improved detection and messages) ---------- */
   previewBtn.addEventListener('click', ()=>{
     if (!state.lastGenerated) return appendMsg('bot','هیچ صفحه‌ای تولید نشده.');
     const html = state.lastGenerated.html || '<div>no html</div>';
@@ -429,32 +507,82 @@
 
   insertBtn.addEventListener('click', ()=>{
     if (!state.lastGenerated) return appendMsg('bot','هیچ صفحه‌ای تولید نشده.');
-    const html = sanitizeHtml(state.lastGenerated.html || '');
-    const css = state.lastGenerated.css || '';
-    let inserted = false;
-    try {
-      const iframe = document.querySelector('iframe');
-      if (iframe && (iframe.contentDocument || iframe.contentWindow.document)){
-        const doc = iframe.contentDocument || iframe.contentWindow.document;
-        const full = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body>${html}</body></html>`;
-        doc.open();
-        doc.write(full);
-        doc.close();
-        appendMsg('bot','صفحه در iframe ادیتور درج شد.');
-        inserted = true;
-      }
-    } catch(e){
-      console.warn('iframe insert failed', e);
-    }
-    if (!inserted){
+    // run detection again and try best-effort insert
+    const detect = detectEditorTarget();
+    if (!detect.type){
+      // fallback: open in new tab and instruct user
+      const full = buildFullPage(state.lastGenerated);
       const win = window.open('', '_blank');
-      const full = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body>${html}</body></html>`;
       win.document.open();
       win.document.write(full);
       win.document.close();
-      appendMsg('bot','صفحه در تب جدید باز شد. آن را ذخیره و در ویرایشگر خود آپلود کنید.');
+      appendMsg('bot','ویرایشگر شناسایی نشد. صفحه در تب جدید باز شد. آن را دانلود/آپلود کنید.');
+      return;
     }
+    if (detect.type === 'iframe-cross-origin'){
+      appendMsg('bot','ویرایشگر پیدا شد اما iframe از دامنه متفاوت است؛ نمی‌توانم مستقیم درج کنم. تب جدید باز می‌شود.');
+      const full = buildFullPage(state.lastGenerated);
+      const win = window.open('', '_blank');
+      win.document.open();
+      win.document.write(full);
+      win.document.close();
+      return;
+    }
+    if (detect.type === 'iframe-same-origin'){
+      try {
+        const iframe = detect.node;
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        const full = buildFullPage(state.lastGenerated);
+        doc.open();
+        doc.write(full);
+        doc.close();
+        appendMsg('bot','صفحه با موفقیت در iframe ویرایشگر درج شد.');
+        return;
+      } catch (e){
+        console.warn('iframe insert failed', e);
+        appendMsg('bot','خطا در درج به iframe: ' + (e.message || e));
+      }
+    }
+    if (detect.type === 'vvveb-global'){
+      try {
+        const api = detect.node;
+        // attempt to use common methods if present
+        if (typeof api.loadHtml === 'function'){
+          api.loadHtml(state.lastGenerated.html || '', state.lastGenerated.css || '');
+          appendMsg('bot','از API داخلی ویرایشگر استفاده شد (loadHtml).');
+          return;
+        } else if (typeof api.setHtml === 'function'){
+          api.setHtml(state.lastGenerated.html || '');
+          appendMsg('bot','از API داخلی ویرایشگر استفاده شد (setHtml).');
+          return;
+        } else {
+          appendMsg('bot','شیء ویرایشگر پیدا شد اما متد سازگار یافت نشد؛ fallback به تب جدید.');
+          const full = buildFullPage(state.lastGenerated);
+          const win = window.open('', '_blank');
+          win.document.open();
+          win.document.write(full);
+          win.document.close();
+          return;
+        }
+      } catch (e){
+        console.error('vvveb insert failed', e);
+        appendMsg('bot','خطا در درج با API ویرایشگر: ' + (e.message || e));
+      }
+    }
+    // default fallback
+    const full = buildFullPage(state.lastGenerated);
+    const win = window.open('', '_blank');
+    win.document.open();
+    win.document.write(full);
+    win.document.close();
+    appendMsg('bot','عملیات درج به پایان رسید (fallback: تب جدید).');
   });
+
+  function buildFullPage(gen){
+    const html = gen?.html || '<div></div>';
+    const css = gen?.css || '';
+    return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body>${html}</body></html>`;
+  }
 
   /* ---------- initial UI state ---------- */
   popup.style.display = 'none';
@@ -463,7 +591,15 @@
   openBtn.style.display = 'flex';
   openBtn.classList.add('center');
 
+  // populate settings into inputs
+  apiUrlInput.value = state.settings?.api_url || '';
+  useApiCheckbox.checked = !!state.settings?.use_custom_api;
+
   // welcome
   if (!(state.history && state.history.length)) appendMsg('bot','سلام! من Odyssey AI هستم. از من بخواه لندینگ پیج بسازم یا سوال بپرس.');
+
+  // expose small helper to run detection from console if needed
+  window.odyssey_detect_editor = detectEditorTarget;
+  window.odyssey_check_editor = checkEditorCapability;
 
 })();
