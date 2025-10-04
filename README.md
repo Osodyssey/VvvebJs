@@ -1,258 +1,149 @@
-# VvvebJs
+# VvvebJs — Modified by Odyssey
+
+> ⚠️ **This README is the Odyssey-maintained README for a fork of VvvebJs.**  
+> The original project (upstream) is **VvvebJs** by givanz: https://github.com/givanz/VvvebJs  
+> This fork and the UI/UX enhancements described below were prepared by **Odyssey** (GitHub: https://github.com/Osodyssey and https://github.com/Osodyssey/VvvebJs).
+
+---
 
 <p align="center">
   <img src="https://www.vvveb.com/admin/themes/default/img/biglogo.png" alt="Vvveb">
   <br><br>
-  <strong>Drag and drop page builder javascript library.</strong>
-  <br>
-  <span>Built with Vanilla Js with no dependencies or build tools and Bootstrap 5</span>
-</p>
-<p align="center">
-  <a href="https://www.vvveb.com">Website</a> |
-  <a href="https://github.com/givanz/VvvebJs/wiki">Documentation</a> |
-  <a href="https://github.com/givanz/VvvebJs/discussions">Forum</a> |
-  <a href="https://twitter.com/vvvebcms">Twitter</a> 
+  <strong>Drag and drop page builder javascript library (Bootstrap 5)</strong>
 </p>
 
+Live demo (upstream): https://www.vvveb.com/vvvebjs/editor.html
 
-## [Live Demo](https://www.vvveb.com/vvvebjs/editor.html)
+---
 
-For a full featured Open Source CMS using VvvebJs page builder check [Vvveb CMS](https://github.com/givanz/Vvveb)
+## What this fork adds / why this README exists
 
-Using [Vvveb landing page template](https://github.com/givanz/landing) for demo page and Bootstrap 5 sections and blocks.
+This repository is the original VvvebJs page builder with **Odyssey** enhancements focused on developer UX for embedding an AI assistant that can:
 
-<img src="https://www.vvveb.com/img/dark-theme.png">
-<img src="https://www.vvveb.com/img/light-theme.png">
+- Generate landing pages (Agent mode) and return HTML/CSS.
+- Provide an in-panel chat UI (Odyssey chat popup) to interact with the model.
+- Allow the user to configure a **custom API URL** in the chat settings (so you can point it to your own server/proxy).
+- Detect VvvebJs editor targets (global API or same-origin iframe) and attempt safe, best-effort **Insert into Editor**.
+- Improved UI/CSS/JS for the chat popup (accessibility, responsive behavior, sanitized insertion, better state & error handling).
 
-### Features
+> **Important:** These changes are additive and do **not** alter the core VvvebJs source code or component APIs. The Odyssey files live under `odyssey/assets/` and should be integrated alongside the original project files.
 
-* Components and blocks/snippets drag and drop and in page insert.
-* Undo/Redo operations.
-* One or two panels interface.
-* File manager and component hierarchy navigation.
-* Add new page modal with template and folder options.
-* Live code editor with codemirror plugin syntax highlighting.
-* Image upload with example php script included.
-* Page download or export html or save page on server with example php script included.
-* Components/Sections/Blocks list search.
-* Bootstrap 5 components.
-* Media gallery with integrated CC0 image search and server upload support.
-* Image, video and iframe elements resize handles.
-* Elements breadcrumb for easier parent elements selection.
-* Full Google fonts list support for font selection.
-* Youtube, Google maps, Charts.js etc widgets.
-* Optional CKEditor plugin to replace builtin text editor.
-* Zip download plugin to download the page and all assets as zip file.
-* SVG Icon component bundled with hundreds of free icons.
-* Animate on scroll support for page elements.
-* Theme global typography and color pallette editor.
+---
 
+## Files added / modified by Odyssey
 
-By default the editor comes with Bootstrap 5 and Widgets components and can be extended with any kind of components and inputs.
+The primary Odyssey files are:
 
-## Install
+- `odyssey/assets/chat-popup.css` — cleaned, optimized CSS for the chat UI
+- `odyssey/assets/chat-popup.js`  — improved JS with:
+  - Custom API URL support (settings field and checkbox)
+  - `callProxy()` uses the custom URL when enabled; otherwise uses the original `/odyssey/api_proxy.php`
+  - Editor detection helpers (`odyssey_detect_editor`, `odyssey_check_editor`) to attempt insertion into VvvebJs
+  - Open-button hides while popup is open (avoids duplicate controls)
+  - Better sanitization (DOMParser), history limits, UI state fixes, accessibility improvements
 
-* Clone the repository 
-```bash
-#git 2.13+ 
-git clone --recurse-submodules https://github.com/givanz/VvvebJs
+These files are intentionally namespaced under `odyssey/` to avoid overwriting upstream VvvebJs files.
 
-# older git versions 
-git clone --recursive https://github.com/givanz/VvvebJs
-```
+---
 
-* Pull changes 
-```bash
-git pull --recurse-submodules
-```
+## Quick integration guide
 
-## Usage
+1. **Place Odyssey files**
 
-Clone the repository or download a release then open `editor.html`
+   Copy the `odyssey/` folder into the root of your VvvebJs project so the path becomes:
 
-Because of browser iframe security you need to use a webserver such as apache/xampp and open `http://localhost/editor.html`
+   ```
+   <project-root>/
+     odyssey/
+       assets/
+         chat-popup.css
+         chat-popup.js
+   ```
 
-To use the image upload or page save feature you need to have php installed.
+2. **Include CSS & JS in `editor.html` (or your host page)**
 
+   Add to the `<head>` (for CSS) and before `</body>` (for JS):
 
-## Docker
+   ```html
+   <!-- Odyssey chat popup -->
+   <link rel="stylesheet" href="odyssey/assets/chat-popup.css" />
+   ...
+   <script src="odyssey/assets/chat-popup.js"></script>
+   ```
 
-### Local development
+   Ensure scripts are loaded after the page's DOM so the plugin can attach itself. You can include it at the end of `<body>` or wrap in a DOM ready handler.
 
-From VvvebJs folder run
+3. **API / Proxy**
 
-```bash
-docker-compose up
-```
+   - By default the chat attempts requests to `/odyssey/api_proxy.php` (assumed to be present on the site).
+   - Open the chat `Settings` → `Custom API URL` to provide your own proxy endpoint (e.g., `https://your-domain.com/odyssey/proxy`), and toggle `Use custom API URL`.
+   - The proxy must accept a POST JSON body: `{ model, messages, temperature, max_tokens }` and return an OpenAI-like JSON response containing `choices[0].message.content`.
 
-### Image 
+   If you need a simple PHP proxy example, adapt your existing proxy or use the upstream `api_proxy.php` (not included by Odyssey to avoid leaking credentials).
 
-Or run image 
+4. **Testing editor insertion**
 
-```bash
-docker run -p 8080:80 vvveb/vvvebjs
-```
+   - When the popup opens it automatically runs a capability check and prints status messages into the chat window.
+   - Exposed helpers (for dev console):
+     - `odyssey_detect_editor()` — returns detection details (type, node, reason).
+     - `odyssey_check_editor()`  — runs detection and appends a status message to the chat.
+   - The plugin attempts the following insertion strategies (best-effort):
+     - Use global `Vvveb` / `Vvvebjs` / `VvvebEditor` APIs (if detected).
+     - If there is an **iframe** that is same-origin (editor.html loaded via same origin), write the generated HTML/CSS into the iframe document.
+     - If iframe is cross-origin or no editor is found, the plugin falls back to opening the generated page in a new tab — you can then download/import into VvvebJs manually.
 
-Open http://localhost:8080/editor.php or http://localhost:8080/editor.html
+   **Note:** Because of browser security (cross-origin iframes), automatic insertion may fail if the editor is served from a different origin than the page hosting the plugin. This is expected behavior and the plugin includes user-friendly fallbacks.
 
-## Save page
+---
 
-Save page function needs either php or node
+## Security & sanitization
 
-### PHP
+- Odyssey's chat JS includes a conservative `sanitizeHtml()` (DOMParser-based) to strip scripts, iframes, inline event handlers and `javascript:` URIs before writing generated HTML into an iframe or editor.
+- **Do not** treat content from AI models as secure — always review generated HTML/CSS before publishing it live.
+- If you allow users to input a **Custom API URL**, ensure that URL is trusted and secured. The plugin stores the URL in `localStorage` and will use it when enabled.
 
-If you use docker, xampp or a shared hosting account php should work without any change.
+---
 
-Saving is done using [save.php](save.php)
+## Developer notes
 
-### Node
+- The Odyssey plugin keeps UI IDs and DOM structure stable so it won't break other scripts that target the same ids. Elements used:
+  - `#ai-chat-popup`, `#ai-chat-open-btn`, `#ai-chat-messages`, `#ai-chat-text`, `#ai-chat-send`, `#od-settings`, `#od-model`, `#od-api-url`, `#od-use-api`, `#od-save-settings`, and similar.
+- To debug editor detection: open DevTools and run `odyssey_detect_editor()` — it will return an object describing what it found.
+- To see runtime messages and errors, keep the chat popup open; important messages are appended to the chat window.
 
-For node go to VvvebJs folder and run
+---
 
-```bash
-npm install express
-node save.js
-```
+## Example usage flow
 
-Open http://localhost:8080/editor.html
+1. Open VvvebJs `editor.html` on a local server (e.g., `http://localhost/editor.html`) and ensure Odyssey assets are included.
+2. Click the floating `💬` button — the popup will appear and the button will hide while the popup is open.
+3. (Optional) Settings → enter `Custom API URL`, check `Use custom API URL`, Save.
+4. Type a prompt (Persian or English) and click `ارسال`.
+5. Use **Agent** to generate landing page structure and final HTML/CSS. After generation, use **Preview** or **Insert into Editor**:
+   - If editor is detectable and accessible, the plugin will attempt to write the generated page into the editor.
+   - Otherwise it opens the page in a new tab (fallback).
 
-Saving is done using [save.js](save.js)
+---
 
+## Credits
 
-## [Landing template](https://github.com/givanz/landing)
+- Original VvvebJs project: givanz — https://github.com/givanz/VvvebJs  
+- Fork and Odyssey UI/UX enhancements: Osodyssey — https://github.com/Osodyssey and https://github.com/Osodyssey/VvvebJs
 
-To make changes to template files or sections run the following commands from `demo/landing` folder
-
-### Install gulp
-
-```bash
-npm i
-```
-
-### Generate html files
-
-Template html partials are located in `demo/landing/src` folder.
-
-```bash
-npm run gulp
-```
-
-### Watch for changes for development
-
-```bash
-npm run gulp watch
-```
-
-### Generate sections list for page builder
-
-Sections html files are located in `demo/landing/src/sections` folder grouped in folders with the section group name.
-
-```bash
-npm run gulp sections
-```
-
-### Generate blocks list
-
-Blocks html files are located in `demo/landing/src/blocks` folder grouped in folders with the blocks group name.
-
-```bash
-npm run gulp blocks
-```
-
-### Generate screenshots for sections
-
-```bash
-npm run gulp screenshots
-```
-
-## Usage
-
-### Initialize example
-
-
-```js
-<!-- bootstrap-->
-<script src="js/popper.min.js"></script>
-<script src="js/bootstrap.min.js"></script>
-
-<!-- builder code-->
-<script src="libs/builder/builder.js"></script>	
-<!-- undo manager-->
-<script src="libs/builder/undo.js"></script>	
-<!-- inputs-->
-<script src="libs/builder/inputs.js"></script>	
-<!-- components-->
-<script src="libs/builder/components-bootstrap5.js"></script>	
-<script src="libs/builder/components-widgets.js"></script>	
-
-<script>
-let pages = [
- {
-	name:"narrow-jumbotron", 
-	title:"Jumbotron", 
-	url: "demo/narrow-jumbotron/index.html", 
-	file: "demo/narrow-jumbotron/index.html"
-  },
-  {name:"landing-page", title:"Landing page", url: "demo/landing/index.html", file: "demo/landing/index.html"},
-];
-	
-
-let firstPage = Object.keys(pages)[0];
-Vvveb.Builder.init(pages[firstPage]["url"], function() {
-	//load code after page is loaded here
-});
-
-Vvveb.Gui.init();
-Vvveb.FileManager.init();
-Vvveb.SectionList.init();
-Vvveb.Breadcrumb.init();
-
-Vvveb.FileManager.addPages(pages);
-Vvveb.FileManager.loadPage(pages[firstPage]["name"]);
-Vvveb.Gui.toggleRightColumn(false);
-Vvveb.Breadcrumb.init();
-
-<script>
-```
-
-For editor html and components/input javascript templates edit [editor.html](editor.html)
-
-For css changes edit [scss/editor.scss](scss/editor.scss) and [scss/_builder.scss](scss/_builder.scss)
-
-
-### Scss
-
-To compile scss to css first install gulp 
-
-```bash
-npm i
-```
-
-Then you can run 
-
-```bash
-npm run gulp
-```
-
-or use watch to compile on file change.
-
-```bash
-npm run gulp watch
-```
-
-
-## Documentation
-
-For documentation check the [wiki](https://github.com/givanz/VvvebJs/wiki)
-
-## Support
-
-If you like the project you can support it with a [PayPal donation](https://paypal.me/zgivan) or become a backer/sponsor via [Open Collective](https://opencollective.com/vvvebjs)
-
-
-<a href="https://opencollective.com/vvvebjs/sponsors/0/website"><img src="https://opencollective.com/vvvebjs/sponsors/0/avatar"></a>
-<a href="https://opencollective.com/vvvebjs/backers/0/website"><img src="https://opencollective.com/vvvebjs/backers/0/avatar"></a>
+---
 
 ## License
 
-Apache 2.0
+Upstream license: **Apache 2.0** (see original repository).  
+This README and the Odyssey assets are distributed in accordance with the upstream license and do not relicense the upstream project.
+
+---
+
+## Contact / Support
+
+If you need specific help integrating Odyssey changes, open an issue in the Odyssey fork:  
+https://github.com/Osodyssey/VvvebJs
+
+---
+
+*This README was updated and generated by Odyssey to document the Odyssey-specific enhancements and integration instructions. It is intended to be a drop-in documentation file for the forked repository.*
