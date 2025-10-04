@@ -1,0 +1,54 @@
+/* odyssey/assets/chat-popup.css */
+#ai-chat-popup {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 360px;
+  max-height: 520px;
+  box-shadow: 0 6px 30px rgba(0,0,0,0.25);
+  border-radius: 12px;
+  overflow: hidden;
+  font-family: Arial, sans-serif;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  z-index: 99999;
+}
+
+#ai-chat-header {
+  padding: 10px;
+  background: #0d6efd;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#ai-chat-messages {
+  padding: 10px;
+  overflow-y: auto;
+  flex: 1;
+  background: #f7f7f8;
+}
+
+.ai-chat-msg { margin-bottom: 10px; }
+.ai-chat-msg.user { text-align: right; }
+.ai-chat-msg .bubble {
+  display: inline-block;
+  padding: 8px 12px;
+  border-radius: 12px;
+  max-width: 85%;
+  word-wrap: break-word;
+}
+.ai-chat-msg.user .bubble { background: #0d6efd; color: white; }
+.ai-chat-msg.bot .bubble { background: #ffffff; border: 1px solid #e6e6e6; }
+
+#ai-chat-input {
+  padding: 8px;
+  display: flex;
+  gap: 8px;
+  border-top: 1px solid #eee;
+}
+#ai-chat-input textarea { flex:1; resize:none; height:44px; padding:8px; border-radius:8px; border:1px solid #ddd; }
+#ai-chat-input button { padding: 8px 12px; border-radius:8px; border:none; background:#0d6efd; color:white; cursor:pointer; }
+#ai-chat-open-btn { position: fixed; right: 20px; bottom: 560px; z-index: 99999; width:48px; height:48px; border-radius:50%; border:none; background:#0d6efd; color:white; cursor:pointer; }
