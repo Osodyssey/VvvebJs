@@ -1,3 +1,4 @@
 node_modules
 *.css.map
 *.js.map
+/odyssey/openai_key.php
